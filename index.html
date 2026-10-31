@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ASCII ボックス ライン 作図 ツール</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { background: #0f172a; }
+  #editor {
+    font-family: 'Courier New', Consolas, 'Lucida Console', monospace;
+    font-size: 14px;
+    line-height: 1.5;
+    tab-size: 1;
+    resize: none;
+    outline: none;
+    background: #0d1117;
+    color: #e2e8f0;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    padding: 12px;
+    white-space: pre;
+    overflow: auto;
+  }
+  #editor:focus { border-color: #6366f1; }
+  .char-btn {
+    font-family: 'Courier New', Consolas, monospace;
+    font-size: 16px;
+    line-height: 1;
+    min-width: 36px;
+    min-height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    border-radius: 4px;
+    background: #1e293b;
+    border: 1px solid #334155;
+    color: #e2e8f0;
+    transition: background 0.1s, border-color 0.1s;
+    user-select: none;
+  }
+  .char-btn:hover { background: #334155; border-color: #6366f1; }
+  .char-btn.active { background: #4338ca; border-color: #6366f1; color: #fff; }
+  .preset-btn {
+    padding: 5px 12px;
+    border-radius: 5px;
+    background: #1e293b;
+    border: 1px solid #334155;
+    color: #cbd5e1;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.1s;
+    white-space: nowrap;
+  }
+  .preset-btn:hover { background: #334155; }
+</style>
+</head>
+<body class="min-h-screen text-slate-100 p-4">
+<div class="max-w-4xl mx-auto">
+  <h1 class="text-2xl font-bold text-emerald-400 mb-1">ASCII ボックス ライン 作図 ツール</h1>
+  <p class="text-slate-400 text-sm mb-4">罫線文字でボックス・ダイアグラムを描くエディタ</p>
+
+  <!-- Palette + Presets + Grid Generator -->
+  <div class="bg-slate-800 rounded-lg p-3 mb-3">
+    <!-- Character palette -->
+    <p class="text-xs text-slate-400 mb-2">文字パレット（クリックでエディタに挿入）</p>
+    <div class="flex flex-wrap gap-1 mb-3" id="palette">
+      <!-- Populated by JS -->
+    </div>
+
+    <!-- Presets -->
+    <p class="text-xs text-slate-400 mb-2">プリセット</p>
+    <div class="flex flex-wrap gap-2 mb-3">
+      <button class="preset-btn" onclick="insertPreset('simple')" aria-label="単純ボックスを挿入">単純ボックス</button>
+      <button class="preset-btn" onclick="insertPreset('double')" aria-label="二重線ボックスを挿入">二重線ボックス</button>
+      <button class="preset-btn" onclick="insertPreset('dash')" aria-label="ダッシュ線を挿入">ダッシュ線</button>
+      <button class="preset-btn" onclick="insertPreset('table')" aria-label="テーブルを挿入">テーブル</button>
+      <button class="preset-btn" onclick="insertPreset('tree')" aria-label="ツリー図を挿入">ツリー図</button>
+      <button class="preset-btn" onclick="insertPreset('diagram')" aria-label="フロー図を挿入">フロー図</button>
+    </div>
+
+    <!-- Grid Generator -->
+    <div class="flex flex-wrap gap-2 items-center">
+      <p class="text-xs text-slate-400">ブランクグリッド生成:</p>
+      <label class="text-xs text-slate-400">幅<input id="gridW" type="number" min="5" max="80" value="20" class="ml-1 w-14 bg-slate-700 border border-slate-600 rounded px-1 py-0.5 text-sm text-white"></label>
+      <label class="text-xs text-slate-400">高さ<input id="gridH" type="number" min="3" max="40" value="6" class="ml-1 w-12 bg-slate-700 border border-slate-600 rounded px-1 py-0.5 text-sm text-white"></label>
+      <button onclick="generateGrid()" class="preset-btn" aria-label="グリッド生成">生成</button>
+    </div>
+  </div>
+
+  <!-- Editor area -->
+  <div class="flex gap-2 mb-2 items-center">
+    <span class="text-xs text-slate-500 font-mono" id="cursorPos">行1 列1</span>
+    <div class="ml-auto flex gap-2">
+      <button onclick="selectAll()" class="px-3 py-1.5 text-xs rounded bg-slate-700 hover:bg-slate-600 text-slate-200" aria-label="全選択">全選択</button>
+      <button onclick="copyAll()" id="btnCopy" class="px-3 py-1.5 text-xs rounded bg-emerald-700 hover:bg-emerald-600 text-white" aria-label="全コピー">全コピー</button>
+      <button onclick="clearEditor()" class="px-3 py-1.5 text-xs rounded bg-red-900/60 hover:bg-red-900 text-red-300" aria-label="クリア">クリア</button>
+    </div>
+  </div>
+  <textarea id="editor" rows="20" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off"></textarea>
+
+  <!-- Preview -->
+  <div class="mt-3 bg-slate-800 rounded-lg p-3">
+    <p class="text-xs text-slate-400 mb-2">プレビュー（コピー用）</p>
+    <pre id="preview" class="text-sm font-mono text-slate-200 overflow-x-auto whitespace-pre select-all min-h-8"></pre>
+  </div>
+</div>
+
+<script>
+const CHARS = [
+  // Basic box
+  { c: '+', label: '+', group: 'basic' },
+  { c: '-', label: '-', group: 'basic' },
+  { c: '|', label: '|', group: 'basic' },
+  { c: '=', label: '=', group: 'basic' },
+  // Box drawing - single
+  { c: '┌', label: '┌', group: 'single' },
+  { c: '┐', label: '┐', group: 'single' },
+  { c: '└', label: '└', group: 'single' },
+  { c: '┘', label: '┘', group: 'single' },
+  { c: '─', label: '─', group: 'single' },
+  { c: '│', label: '│', group: 'single' },
+  { c: '├', label: '├', group: 'single' },
+  { c: '┤', label: '┤', group: 'single' },
+  { c: '┬', label: '┬', group: 'single' },
+  { c: '┴', label: '┴', group: 'single' },
+  { c: '┼', label: '┼', group: 'single' },
+  // Double line
+  { c: '╔', label: '╔', group: 'double' },
+  { c: '╗', label: '╗', group: 'double' },
+  { c: '╚', label: '╚', group: 'double' },
+  { c: '╝', label: '╝', group: 'double' },
+  { c: '═', label: '═', group: 'double' },
+  { c: '║', label: '║', group: 'double' },
+  { c: '╠', label: '╠', group: 'double' },
+  { c: '╣', label: '╣', group: 'double' },
+  { c: '╦', label: '╦', group: 'double' },
+  { c: '╩', label: '╩', group: 'double' },
+  { c: '╬', label: '╬', group: 'double' },
+  // Arrows
+  { c: '→', label: '→', group: 'arrow' },
+  { c: '←', label: '←', group: 'arrow' },
+  { c: '↑', label: '↑', group: 'arrow' },
+  { c: '↓', label: '↓', group: 'arrow' },
+  { c: '↔', label: '↔', group: 'arrow' },
+  { c: '⇒', label: '⇒', group: 'arrow' },
+  // Misc
+  { c: '▶', label: '▶', group: 'misc' },
+  { c: '●', label: '●', group: 'misc' },
+  { c: '○', label: '○', group: 'misc' },
+  { c: '▪', label: '▪', group: 'misc' },
+  { c: '·', label: '·', group: 'misc' },
+  { c: '…', label: '…', group: 'misc' },
+];
+
+const GROUP_LABELS = { basic: 'ASCII', single: '単線', double: '二重線', arrow: '矢印', misc: 'その他' };
+const GROUP_COLORS = { basic: 'text-slate-300', single: 'text-cyan-300', double: 'text-purple-300', arrow: 'text-amber-300', misc: 'text-pink-300' };
+
+// Build palette
+const palette = document.getElementById('palette');
+let lastGroup = '';
+CHARS.forEach(ch => {
+  if (ch.group !== lastGroup) {
+    lastGroup = ch.group;
+    const sep = document.createElement('span');
+    sep.className = 'text-xs ' + GROUP_COLORS[ch.group] + ' self-center mr-1 font-semibold';
+    sep.textContent = GROUP_LABELS[ch.group];
+    palette.appendChild(sep);
+  }
+  const btn = document.createElement('button');
+  btn.className = 'char-btn';
+  btn.textContent = ch.c;
+  btn.setAttribute('aria-label', ch.label + '（' + GROUP_LABELS[ch.group] + '）');
+  btn.onclick = () => insertChar(ch.c);
+  palette.appendChild(btn);
+});
+
+const editor = document.getElementById('editor');
+
+function insertChar(c) {
+  const start = editor.selectionStart;
+  const end = editor.selectionEnd;
+  const val = editor.value;
+  editor.value = val.substring(0, start) + c + val.substring(end);
+  editor.selectionStart = editor.selectionEnd = start + c.length;
+  editor.focus();
+  saveContent();
+  updatePreview();
+  updateCursor();
+}
+
+const PRESETS = {
+  simple: `┌─────────────────┐\n│   Hello, World!  │\n└─────────────────┘`,
+  double: `╔═════════════════╗\n║   Double Box     ║\n╠═════════════════╣\n║   Content Here   ║\n╚═════════════════╝`,
+  dash: `- - - - - - - - - -\n· · · · · · · · · ·\n= = = = = = = = = =`,
+  table: `┌──────────┬──────────┬──────────┐\n│  Name    │  Value   │  Status  │\n├──────────┼──────────┼──────────┤\n│  Alpha   │  100     │  OK      │\n│  Beta    │  200     │  OK      │\n│  Gamma   │  300     │  WARN    │\n└──────────┴──────────┴──────────┘`,
+  tree: `root/\n├── src/\n│   ├── index.js\n│   ├── app.js\n│   └── utils/\n│       └── helper.js\n├── tests/\n│   └── app.test.js\n└── package.json`,
+  diagram: `  [Client]\n     │\n     │  HTTP Request\n     ▼\n  [Server]\n     │\n     │  DB Query\n     ▼\n  [Database]\n     │\n     │  Results\n     ▼\n  [Server] → Response → [Client]`,
+};
+
+function insertPreset(name) {
+  const text = PRESETS[name] || '';
+  const start = editor.selectionStart;
+  const val = editor.value;
+  const prefix = start > 0 && val[start-1] !== '\n' ? '\n' : '';
+  editor.value = val.substring(0, start) + prefix + text + '\n' + val.substring(start);
+  editor.selectionStart = editor.selectionEnd = start + prefix.length + text.length + 1;
+  editor.focus();
+  saveContent();
+  updatePreview();
+  updateCursor();
+}
+
+function generateGrid() {
+  const w = parseInt(document.getElementById('gridW').value) || 20;
+  const h = parseInt(document.getElementById('gridH').value) || 6;
+  const row = ' '.repeat(Math.max(1, w));
+  const grid = Array.from({length: h}, () => row).join('\n');
+  const start = editor.selectionStart;
+  const val = editor.value;
+  const prefix = start > 0 && val[start-1] !== '\n' ? '\n' : '';
+  editor.value = val.substring(0, start) + prefix + grid + '\n' + val.substring(start);
+  editor.selectionStart = editor.selectionEnd = start + prefix.length;
+  editor.focus();
+  saveContent();
+  updatePreview();
+  updateCursor();
+}
+
+function selectAll() {
+  editor.select();
+  editor.focus();
+}
+
+async function copyAll() {
+  const text = editor.value;
+  try {
+    await navigator.clipboard.writeText(text);
+    const btn = document.getElementById('btnCopy');
+    const orig = btn.textContent;
+    btn.textContent = '✓ コピー完了';
+    btn.className = 'px-3 py-1.5 text-xs rounded bg-green-700 text-white';
+    setTimeout(() => {
+      btn.textContent = orig;
+      btn.className = 'px-3 py-1.5 text-xs rounded bg-emerald-700 hover:bg-emerald-600 text-white';
+    }, 1500);
+  } catch {
+    selectAll();
+    document.execCommand('copy');
+  }
+}
+
+function clearEditor() {
+  if (!editor.value || confirm('エディタの内容をクリアしますか？')) {
+    editor.value = '';
+    saveContent();
+    updatePreview();
+    updateCursor();
+  }
+}
+
+function saveContent() {
+  try { localStorage.setItem('ascii_editor_content', editor.value); } catch {}
+}
+
+function updatePreview() {
+  document.getElementById('preview').textContent = editor.value;
+}
+
+function updateCursor() {
+  const pos = editor.selectionStart;
+  const text = editor.value.substring(0, pos);
+  const lines = text.split('\n');
+  const line = lines.length;
+  const col = lines[lines.length - 1].length + 1;
+  document.getElementById('cursorPos').textContent = `行${line} 列${col}`;
+}
+
+editor.addEventListener('input', () => { saveContent(); updatePreview(); });
+editor.addEventListener('keyup', updateCursor);
+editor.addEventListener('click', updateCursor);
+editor.addEventListener('select', updateCursor);
+
+// Handle Tab key
+editor.addEventListener('keydown', (e) => {
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    const start = editor.selectionStart;
+    const end = editor.selectionEnd;
+    editor.value = editor.value.substring(0, start) + '  ' + editor.value.substring(end);
+    editor.selectionStart = editor.selectionEnd = start + 2;
+    saveContent();
+    updatePreview();
+  }
+});
+
+// Load saved content
+const saved = localStorage.getItem('ascii_editor_content');
+if (saved) {
+  editor.value = saved;
+} else {
+  // Default content
+  editor.value = `┌─────────────────────┐\n│   ASCII Art Editor   │\n├─────────────────────┤\n│  ← 左のパレットから  │\n│   文字を挿入できます  │\n└─────────────────────┘\n\n文字を自由に編集してください。`;
+}
+updatePreview();
+updateCursor();
+</script>
+</body>
+</html>
